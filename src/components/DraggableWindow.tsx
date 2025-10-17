@@ -1,42 +1,56 @@
 import React from "react";
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
 import Draggable from "./Draggable";
 
 interface DraggableWindowProps {
   title: string;
   children: React.ReactNode;
   onClose?: () => void;
+  onMinimize?: () => void;
   onDrag: (position: { x: number; y: number }) => void;
   initialPosition: { x: number; y: number };
+  iconType?: string; // Add icon type prop
 }
+
+// Icon mapping for window title bars
+const windowIconSources = {
+  wardrobe: require("../assets/icons/wardrobe.png"),
+  outfit: require("../assets/icons/outfit.png"),
+  camera: require("../assets/icons/camera.png"),
+  gallery: require("../assets/icons/gallery.png"),
+  application: require("../assets/icons/application.png"),
+  clueless: require("../assets/icons/application.png"),
+  folder: require("../assets/icons/folder.png"), // default
+};
 
 const DraggableWindow: React.FC<DraggableWindowProps> = ({
   title,
   children,
   onClose,
+  onMinimize,
   onDrag,
   initialPosition,
+  iconType = "folder",
 }) => {
+  const windowIconSource =
+    windowIconSources[iconType as keyof typeof windowIconSources] ||
+    windowIconSources.folder;
+
   return (
     <Draggable initialPosition={initialPosition} onDrag={onDrag}>
       <View style={styles.window}>
         {/* Classic 3D Border */}
         <View style={styles.borderOutset} />
 
-        {/* Pink Title Bar - This is the drag handle */}
+        {/* Pink Title Bar */}
         <View style={styles.titleBar}>
-          <View style={styles.titleIcon}>📁</View>
+          <Image source={windowIconSource} style={styles.titleIcon} />
           <Text style={styles.titleText}>{title}</Text>
           <View style={styles.windowControls}>
-            <TouchableOpacity
-              style={[styles.controlButton, styles.controlButton]}
-            >
+            <TouchableOpacity style={styles.controlButton} onPress={onMinimize}>
               <Text style={styles.controlText}>_</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.controlButton, styles.controlButton]}
-              onPress={onClose}
-            >
+            <TouchableOpacity style={styles.controlButton} onPress={onClose}>
               <Text style={styles.controlText}>×</Text>
             </TouchableOpacity>
           </View>
@@ -96,7 +110,7 @@ const styles = StyleSheet.create({
     bottom: -1,
   },
   titleBar: {
-    backgroundColor: "#ff66b2", // Pretty pink
+    backgroundColor: "#ff66b2",
     padding: 4,
     flexDirection: "row",
     alignItems: "center",
@@ -104,7 +118,8 @@ const styles = StyleSheet.create({
     borderBottomColor: "#808080",
   },
   titleIcon: {
-    fontSize: 12,
+    width: 16,
+    height: 16,
     marginRight: 6,
     marginLeft: 4,
   },
@@ -117,6 +132,7 @@ const styles = StyleSheet.create({
     textShadowColor: "#000000",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 0,
+    userSelect: "none",
   },
   windowControls: {
     flexDirection: "row",
@@ -154,6 +170,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
     fontFamily: "MS Sans Serif, System",
     fontWeight: "bold",
+    userSelect: "none",
   },
   windowContent: {
     flex: 1,
@@ -175,6 +192,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#000000",
     fontFamily: "MS Sans Serif, System",
+    userSelect: "none",
   },
   statusSeparator: {
     width: 1,

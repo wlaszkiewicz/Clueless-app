@@ -1,56 +1,59 @@
 import React from "react";
-import { Text, StyleSheet, View } from "react-native";
-import { Theme } from "../constants/Theme";
-import WindowsIcons from "./WindowsIcons";
+import { Text, StyleSheet, View, Image } from "react-native";
 import Draggable from "./Draggable";
 
 interface DesktopIconProps {
   iconType:
     | "folder"
-    | "paint"
     | "camera"
     | "gallery"
     | "application"
-    | "clueless";
+    | "clueless"
+    | "wardrobe"
+    | "outfit";
   label: string;
-  onDoubleClick: () => void; // Changed from onPress to onDoubleClick
+  onDoubleClick: () => void;
   onDrag: (position: { x: number; y: number }) => void;
   initialPosition: { x: number; y: number };
   isSelected?: boolean;
 }
 
+// Icon mapping - update these paths to match your downloaded icons
+const iconSources = {
+  folder: require("../assets/icons/folder.png"),
+  camera: require("../assets/icons/camera.png"),
+  gallery: require("../assets/icons/gallery.png"),
+  application: require("../assets/icons/application.png"),
+  clueless: require("../assets/icons/application.png"), // Add your clueless icon
+  wardrobe: require("../assets/icons/wardrobe.png"), // Add your wardrobe icon
+  outfit: require("../assets/icons/outfit.png"),
+};
+
 const DesktopIcon: React.FC<DesktopIconProps> = ({
   iconType,
   label,
-  onDoubleClick, // Changed from onPress
+  onDoubleClick,
   onDrag,
   initialPosition,
   isSelected,
 }) => {
   const renderIcon = () => {
-    switch (iconType) {
-      case "folder":
-        return <WindowsIcons.FolderIcon />;
-      case "paint":
-        return <WindowsIcons.PaintIcon />;
-      case "camera":
-        return <WindowsIcons.CameraIcon />;
-      case "gallery":
-        return <WindowsIcons.GalleryIcon />;
-      case "application":
-        return <WindowsIcons.ApplicationIcon />;
-      case "clueless":
-        return <WindowsIcons.ApplicationIcon />;
-      default:
-        return <WindowsIcons.ApplicationIcon />;
-    }
+    const iconSource = iconSources[iconType] || iconSources.application;
+
+    return (
+      <Image
+        source={iconSource}
+        style={styles.iconImage}
+        resizeMode="contain"
+      />
+    );
   };
 
   return (
     <Draggable
       initialPosition={initialPosition}
       onDrag={onDrag}
-      onDoubleClick={onDoubleClick} // Pass double click handler
+      onDoubleClick={onDoubleClick}
     >
       <View style={[styles.iconContainer, isSelected && styles.selected]}>
         <View style={styles.iconWrapper}>{renderIcon()}</View>
@@ -63,37 +66,39 @@ const DesktopIcon: React.FC<DesktopIconProps> = ({
 const styles = StyleSheet.create({
   iconContainer: {
     alignItems: "center",
-    padding: 8,
-    width: 70,
+    padding: 12, // More padding for bigger feel
+    width: 80, // Wider for better spacing
     borderRadius: 2,
   },
   selected: {
     backgroundColor: "rgba(0, 0, 255, 0.3)",
   },
   iconWrapper: {
-    width: 32,
-    height: 32,
-    marginBottom: 6,
+    width: 70, // Bigger icons
+    height: 70, // Bigger icons
+    marginBottom: 8,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: "#c0c0c0",
-    borderTopColor: "#ffffff",
-    borderLeftColor: "#ffffff",
+  },
+  iconImage: {
+    width: 70, // Larger icon size
+    height: 70,
   },
   label: {
     fontFamily: "MS Sans Serif, System",
     fontSize: 11,
     color: "#ffffff",
     textAlign: "center",
-    backgroundColor: "transparent",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 2,
+    backgroundColor: "rgba(0, 0, 0, 0.1)", // Darker background for better readability
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 3,
     textShadowColor: "#000000",
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 0,
+    // Prevent text selection
+    userSelect: "none",
   },
 });
 

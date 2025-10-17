@@ -1,11 +1,22 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Dimensions,
+  Image,
+} from "react-native";
 import DesktopIcon from "../components/DesktopIcon";
 import DraggableWindow from "../components/DraggableWindow";
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+const isMobile = screenWidth < 768;
 
 const WindowsDesktop = () => {
   const [currentTime, setCurrentTime] = useState("");
   const [openWindows, setOpenWindows] = useState<string[]>([]);
+  const [minimizedWindows, setMinimizedWindows] = useState<string[]>([]);
   const [iconPositions, setIconPositions] = useState<{
     [key: string]: { x: number; y: number };
   }>({});
@@ -26,62 +37,80 @@ const WindowsDesktop = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Mobile layout: icons in two rows at top
+  const mobileIconPositions = [
+    { x: 20, y: 20 }, // Row 1
+    { x: 120, y: 20 }, // Row 1
+    { x: 220, y: 20 }, // Row 1
+    { x: 20, y: 140 }, // Row 2
+    { x: 120, y: 140 }, // Row 2
+  ];
+
   const desktopIcons = [
     {
       id: "wardrobe",
-      iconType: "folder" as const,
+      iconType: "wardrobe" as const,
       label: "My Wardrobe",
-      initialX: 50,
-      initialY: 50,
+      initialX: isMobile ? mobileIconPositions[0].x : 20,
+      initialY: isMobile ? mobileIconPositions[0].y : 20,
     },
     {
       id: "outfits",
-      iconType: "paint" as const,
+      iconType: "outfit" as const,
       label: "Create Outfit",
-      initialX: 50,
-      initialY: 120,
+      initialX: isMobile ? mobileIconPositions[1].x : 20,
+      initialY: isMobile ? mobileIconPositions[1].y : 160,
     },
     {
       id: "addItem",
       iconType: "camera" as const,
       label: "Add Item",
-      initialX: 50,
-      initialY: 190,
+      initialX: isMobile ? mobileIconPositions[2].x : 20,
+      initialY: isMobile ? mobileIconPositions[2].y : 300,
     },
     {
       id: "gallery",
       iconType: "gallery" as const,
       label: "Style Gallery",
-      initialX: 50,
-      initialY: 260,
+      initialX: isMobile ? mobileIconPositions[3].x : 20,
+      initialY: isMobile ? mobileIconPositions[3].y : 440,
     },
     {
       id: "clueless",
-      iconType: "application" as const,
+      iconType: "clueless" as const,
       label: "Clueless",
-      initialX: 50,
-      initialY: 330,
+      initialX: isMobile ? mobileIconPositions[4].x : 20,
+      initialY: isMobile ? mobileIconPositions[4].y : 580,
     },
   ];
 
   const openWindow = (windowId: string) => {
     if (!openWindows.includes(windowId)) {
       setOpenWindows([...openWindows, windowId]);
-      // Set initial window position
+      setMinimizedWindows(minimizedWindows.filter((id) => id !== windowId));
+
       if (!windowPositions[windowId]) {
         setWindowPositions((prev) => ({
           ...prev,
           [windowId]: {
-            x: 150 + openWindows.length * 25,
-            y: 100 + openWindows.length * 20,
+            x: isMobile ? 50 : 150 + openWindows.length * 25,
+            y: isMobile ? 200 : 100 + openWindows.length * 20,
           },
         }));
       }
+    } else if (minimizedWindows.includes(windowId)) {
+      // Restore minimized window
+      setMinimizedWindows(minimizedWindows.filter((id) => id !== windowId));
     }
   };
 
   const closeWindow = (windowId: string) => {
     setOpenWindows(openWindows.filter((id) => id !== windowId));
+    setMinimizedWindows(minimizedWindows.filter((id) => id !== windowId));
+  };
+
+  const minimizeWindow = (windowId: string) => {
+    setMinimizedWindows([...minimizedWindows, windowId]);
   };
 
   const handleIconDrag = (
@@ -117,6 +146,15 @@ const WindowsDesktop = () => {
     return windowPositions[windowId] || { x: 150, y: 100 };
   };
 
+  // Taskbar icon sources
+  const taskbarIconSources = {
+    wardrobe: require("../assets/icons/wardrobe.png"),
+    outfit: require("../assets/icons/outfit.png"),
+    camera: require("../assets/icons/camera.png"),
+    gallery: require("../assets/icons/gallery.png"),
+    clueless: require("../assets/icons/application.png"),
+  };
+
   return (
     <View style={styles.container}>
       {/* Light Blue Desktop Background */}
@@ -128,36 +166,44 @@ const WindowsDesktop = () => {
             iconType={icon.iconType}
             label={icon.label}
             initialPosition={getIconPosition(icon.id)}
-            onDoubleClick={() => openWindow(icon.id)} // Changed to onDoubleClick
+            onDoubleClick={() => openWindow(icon.id)}
             onDrag={(position) => handleIconDrag(icon.id, position)}
           />
         ))}
-        {/* Draggable Windows */}
-        {openWindows.map((windowId) => {
-          const icon = desktopIcons.find((icon) => icon.id === windowId);
-          return (
-            <DraggableWindow
-              key={windowId}
-              title={icon?.label || "Window"}
-              initialPosition={getWindowPosition(windowId)}
-              onClose={() => closeWindow(windowId)}
-              onDrag={(position) => handleWindowDrag(windowId, position)}
-            >
-              <Text style={styles.windowText}>
-                {windowId === "clueless"
-                  ? "Welcome to Clueless! 💎\n\nDrag me around the desktop!\nDrag the icons too!"
-                  : `This is the ${icon?.label} window.\n\nDrag me anywhere!`}
-              </Text>
-            </DraggableWindow>
-          );
-        })}
+
+        {/* Draggable Windows (only non-minimized ones) */}
+        {openWindows
+          .filter((windowId) => !minimizedWindows.includes(windowId))
+          .map((windowId) => {
+            const icon = desktopIcons.find((icon) => icon.id === windowId);
+            return (
+              <DraggableWindow
+                key={windowId}
+                title={icon?.label || "Window"}
+                iconType={icon?.iconType}
+                initialPosition={getWindowPosition(windowId)}
+                onClose={() => closeWindow(windowId)}
+                onMinimize={() => minimizeWindow(windowId)}
+                onDrag={(position) => handleWindowDrag(windowId, position)}
+              >
+                <Text style={styles.windowText}>
+                  {windowId === "clueless"
+                    ? "Welcome to Clueless! 💎\n\nDrag me around the desktop!\nDrag the icons too!"
+                    : `This is the ${icon?.label} window.\n\nDrag me anywhere!`}
+                </Text>
+              </DraggableWindow>
+            );
+          })}
+
         {/* Welcome Text */}
-        <View style={styles.welcomeContainer}>
-          <Text style={styles.welcomeText}>Clueless Fashion Studio</Text>
-          <Text style={styles.welcomeSubtitle}>
-            Drag icons and windows anywhere!
-          </Text>
-        </View>
+        {!isMobile && (
+          <View style={styles.welcomeContainer}>
+            <Text style={styles.welcomeText}>Clueless Fashion Studio</Text>
+            <Text style={styles.welcomeSubtitle}>
+              Drag icons and windows anywhere!
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Taskbar */}
@@ -170,10 +216,25 @@ const WindowsDesktop = () => {
         <View style={styles.taskbarPrograms}>
           {openWindows.map((windowId) => {
             const icon = desktopIcons.find((icon) => icon.id === windowId);
+            const isMinimized = minimizedWindows.includes(windowId);
+            const taskbarIconSource =
+              taskbarIconSources[
+                icon?.iconType as keyof typeof taskbarIconSources
+              ] || taskbarIconSources.clueless;
+
             return (
-              <TouchableOpacity key={windowId} style={styles.taskbarProgram}>
-                <Text style={styles.taskbarIcon}>📁</Text>
-                <Text style={styles.taskbarProgramText}>{icon?.label}</Text>
+              <TouchableOpacity
+                key={windowId}
+                style={[
+                  styles.taskbarProgram,
+                  isMinimized && styles.minimizedProgram,
+                ]}
+                onPress={() => openWindow(windowId)}
+              >
+                <Image source={taskbarIconSource} style={styles.taskbarIcon} />
+                {!isMobile && (
+                  <Text style={styles.taskbarProgramText}>{icon?.label}</Text>
+                )}
               </TouchableOpacity>
             );
           })}
@@ -196,15 +257,11 @@ const WindowsDesktop = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#87ceeb", // Light sky blue"
+    backgroundColor: "#87ceeb",
   },
   desktop: {
     flex: 1,
     padding: 16,
-  },
-  iconsContainer: {
-    flexDirection: "column",
-    alignItems: "flex-start",
   },
   welcomeContainer: {
     position: "absolute",
@@ -224,144 +281,12 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 2,
   },
-  window: {
-    position: "absolute",
-    backgroundColor: "#c0c0c0",
-    borderWidth: 2,
-    borderColor: "#dfdfdf",
-    borderTopColor: "#ffffff",
-    borderLeftColor: "#ffffff",
-    borderRightColor: "#808080",
-    borderBottomColor: "#808080",
-    minWidth: 320,
-    minHeight: 240,
-    shadowColor: "#000",
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 0,
-    elevation: 8,
-  },
-  borderOutset: {
-    ...StyleSheet.absoluteFillObject,
-    borderWidth: 1,
-    borderColor: "#000000",
-    top: -1,
-    left: -1,
-    right: -1,
-    bottom: -1,
-  },
-  titleBar: {
-    backgroundColor: "#ff66b2", // Pretty pink
-    padding: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#808080",
-  },
-  titleIcon: {
-    fontSize: 12,
-    marginRight: 6,
-    marginLeft: 4,
-  },
-  titleText: {
-    color: "#ffffff",
-    fontSize: 11,
-    fontWeight: "bold",
-    flex: 1,
-    fontFamily: "MS Sans Serif, System",
-    textShadowColor: "#000000",
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 0,
-  },
-  windowControls: {
-    flexDirection: "row",
-  },
-  controlButton: {
-    width: 18,
-    height: 16,
-    backgroundColor: "#c0c0c0",
-    borderWidth: 1,
-    borderColor: "#808080",
-    borderTopColor: "#ffffff",
-    borderLeftColor: "#ffffff",
-    marginLeft: 2,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  minimizeButton: {
-    // Same as controlButton
-  },
-  closeButton: {
-    // Same as controlButton
-  },
-  controlText: {
-    color: "#000000",
-    fontSize: 10,
-    fontWeight: "bold",
-    lineHeight: 12,
-    marginTop: -2,
-  },
-  menuBar: {
-    flexDirection: "row",
-    backgroundColor: "#c0c0c0",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderBottomWidth: 1,
-    borderBottomColor: "#808080",
-  },
-  menuItem: {
-    fontSize: 11,
-    color: "#000000",
-    marginRight: 16,
-    fontFamily: "MS Sans Serif, System",
-    fontWeight: "bold",
-  },
-  windowContent: {
-    flex: 1,
-  },
-  contentArea: {
-    flex: 1,
-    padding: 12,
-    justifyContent: "center",
-  },
   windowText: {
     fontSize: 12,
     color: "#000000",
     lineHeight: 16,
     fontFamily: "MS Sans Serif, System",
     textAlign: "center",
-  },
-  statusBar: {
-    flexDirection: "row",
-    backgroundColor: "#c0c0c0",
-    padding: 4,
-    borderTopWidth: 1,
-    borderTopColor: "#808080",
-    alignItems: "center",
-  },
-  statusText: {
-    fontSize: 10,
-    color: "#000000",
-    fontFamily: "MS Sans Serif, System",
-  },
-  statusSeparator: {
-    width: 1,
-    height: 12,
-    backgroundColor: "#808080",
-    marginHorizontal: 8,
-  },
-  resizeHandle: {
-    position: "absolute",
-    bottom: 2,
-    right: 2,
-    width: 16,
-    height: 16,
-    borderWidth: 2,
-    borderColor: "#c0c0c0",
-    borderRightColor: "#808080",
-    borderBottomColor: "#808080",
-    borderTopColor: "#dfdfdf",
-    borderLeftColor: "#dfdfdf",
   },
   taskbar: {
     height: 40,
@@ -399,6 +324,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
   },
   taskbarProgram: {
     flexDirection: "row",
@@ -412,9 +338,14 @@ const styles = StyleSheet.create({
     borderRightColor: "#808080",
     borderBottomColor: "#808080",
     marginRight: 6,
+    marginBottom: 2,
+  },
+  minimizedProgram: {
+    opacity: 0.6,
   },
   taskbarIcon: {
-    fontSize: 12,
+    width: 16,
+    height: 16,
     marginRight: 6,
   },
   taskbarProgramText: {

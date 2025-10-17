@@ -17,17 +17,21 @@ const Draggable: React.FC<DraggableProps> = ({
   const [position, setPosition] = useState(initialPosition);
   const viewRef = useRef<View>(null);
   const lastTapRef = useRef<number>(0);
+  const isDraggingRef = useRef(false);
 
   const handlePress = () => {
+    if (isDraggingRef.current) {
+      isDraggingRef.current = false;
+      return;
+    }
+
     const now = Date.now();
     const DOUBLE_PRESS_DELAY = 300;
 
     if (lastTapRef.current && now - lastTapRef.current < DOUBLE_PRESS_DELAY) {
-      // Double tap detected!
       onDoubleClick?.();
       lastTapRef.current = 0;
     } else {
-      // Single tap
       lastTapRef.current = now;
     }
   };
@@ -36,18 +40,26 @@ const Draggable: React.FC<DraggableProps> = ({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: () => {
-      // Bring to front - we'll handle this in parent
+      isDraggingRef.current = false;
     },
     onPanResponderMove: (_, gestureState) => {
-      const newPosition = {
-        x: initialPosition.x + gestureState.dx,
-        y: initialPosition.y + gestureState.dy,
-      };
-      setPosition(newPosition);
-      onDrag?.(newPosition);
+      // Only start dragging after a small movement to avoid text selection
+      if (Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5) {
+        isDraggingRef.current = true;
+
+        const newPosition = {
+          x: initialPosition.x + gestureState.dx,
+          y: initialPosition.y + gestureState.dy,
+        };
+        setPosition(newPosition);
+        onDrag?.(newPosition);
+      }
     },
     onPanResponderRelease: () => {
-      // Drag ended
+      if (!isDraggingRef.current) {
+        handlePress();
+      }
+      isDraggingRef.current = false;
     },
   });
 
@@ -61,8 +73,6 @@ const Draggable: React.FC<DraggableProps> = ({
         },
       ]}
       {...panResponder.panHandlers}
-      onStartShouldSetResponder={() => true}
-      onResponderRelease={handlePress}
     >
       {children}
     </View>
@@ -72,6 +82,8 @@ const Draggable: React.FC<DraggableProps> = ({
 const styles = StyleSheet.create({
   draggable: {
     position: "absolute",
+    // Prevent text selection
+    userSelect: "none",
   },
 });
 
