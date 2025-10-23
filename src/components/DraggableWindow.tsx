@@ -15,22 +15,23 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 const isMobile = Platform.OS === "ios" || Platform.OS === "android";
 
 // Get safe area insets for mobile devices
-const STATUSBAR_HEIGHT =
-  Platform.OS === "ios" ? 40 : StatusBar.currentHeight || 24;
+const STATUSBAR_HEIGHT = isMobile ? 40 : StatusBar.currentHeight || 24;
 
 interface DraggableWindowProps {
   title: string;
   children: React.ReactNode;
+  mobilePreviewContent?: React.ReactNode; // New: Content for mobile non-fullscreen
   onClose?: () => void;
   onMinimize?: () => void;
-  onFullscreen?: () => void;
+  onFullscreen?: (isFullscreen: boolean) => void; // Updated: pass state
   onDrag: (position: { x: number; y: number }) => void;
   onFocus?: () => void;
   initialPosition: { x: number; y: number };
   iconType?: string;
   width?: number;
-  height?: number; // This should be used!
+  height?: number;
   isFocused?: boolean;
+  isMobile?: boolean; // New: explicitly pass mobile state
 }
 
 // Icon mapping for window title bars
@@ -58,6 +59,7 @@ const DraggableWindow: React.FC<DraggableWindowProps> = ({
   width = isMobile ? screenWidth * 0.8 : 500,
   height = 400, // SIMPLE DEFAULT - this gets overridden by the prop!
   isFocused = false,
+  mobilePreviewContent,
 }) => {
   const [position, setPosition] = useState(initialPosition);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -66,16 +68,27 @@ const DraggableWindow: React.FC<DraggableWindowProps> = ({
     windowIconSources.folder;
 
   const handleFullscreen = () => {
-    if (isFullscreen) {
-      // Exit fullscreen - return to original position
-      setIsFullscreen(false);
-      setPosition(initialPosition);
-    } else {
-      // Enter fullscreen - account for status bar
-      setIsFullscreen(true);
+    const newFullscreenState = !isFullscreen;
+    setIsFullscreen(newFullscreenState);
+
+    if (newFullscreenState) {
+      // Enter fullscreen
       setPosition({ x: 0, y: STATUSBAR_HEIGHT });
+    } else {
+      // Exit fullscreen
+      setPosition(initialPosition);
     }
-    onFullscreen?.();
+    onFullscreen?.(newFullscreenState);
+  };
+
+  // Determine what content to show
+  const getWindowContent = () => {
+    if (isMobile && !isFullscreen && mobilePreviewContent) {
+      // Show mobile preview content when not in fullscreen
+      return mobilePreviewContent;
+    }
+    // Show full functionality in fullscreen or on desktop
+    return children;
   };
 
   const handleFocus = () => {
@@ -167,18 +180,31 @@ const DraggableWindow: React.FC<DraggableWindowProps> = ({
       )}
 
       {/* Window Content */}
+
+      {/* Window Content */}
       <View
         style={[
           styles.windowContent,
           isFullscreen && styles.windowContentFullscreen,
         ]}
       >
-        <View style={styles.contentArea}>{children}</View>
+        <View style={styles.contentArea}>{getWindowContent()}</View>
+
+        {/* Show fullscreen hint on mobile when not in fullscreen */}
+        {isMobile && !isFullscreen && (
+          <View style={styles.fullscreenHint}>
+            <Text style={styles.fullscreenHintText}>
+              💡 Click the fullscreen button to use this feature!
+            </Text>
+          </View>
+        )}
 
         {/* Status Bar - Hide in fullscreen */}
         {!isFullscreen && (
           <View style={styles.statusBar}>
-            <Text style={styles.statusText}>Ready</Text>
+            <Text style={styles.statusText}>
+              {isMobile && mobilePreviewContent ? "Preview Mode" : "Ready"}
+            </Text>
             <View style={styles.statusSeparator} />
             <Text style={styles.statusText}>Windows 2000</Text>
           </View>
@@ -209,7 +235,6 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     elevation: 8,
   },
-  // ... rest of your styles remain the same ...
   borderContainer: {
     position: "absolute",
     top: 0,
@@ -366,6 +391,19 @@ const styles = StyleSheet.create({
     borderBottomColor: "#808080",
     borderTopColor: "#dfdfdf",
     borderLeftColor: "#dfdfdf",
+  },
+  fullscreenHint: {
+    backgroundColor: "transparent",
+    padding: 8,
+    borderTopWidth: 1,
+    borderTopColor: "transparent",
+    alignItems: "center",
+  },
+  fullscreenHintText: {
+    fontSize: 12,
+    color: "#000000FF",
+    fontFamily: "MS Sans Serif, System",
+    textAlign: "center",
   },
 });
 

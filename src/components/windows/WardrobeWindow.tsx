@@ -1,4 +1,3 @@
-// Replace your WardrobeWindow component with this:
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
@@ -6,458 +5,1184 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
-  ScrollView,
-  Alert,
   Dimensions,
-  PanResponder,
-  Animated,
+  Modal,
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
-import {
-  WardrobeStorage,
-  ClothingItem,
-  DEFAULT_CATEGORIES,
-} from "../../utils/WardrobeStorage";
+import { wardrobeStorage, WardrobeItem } from "../../utils/storage";
+import Draggable from "./../Draggable";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
-const isMobile = screenWidth < 768;
 
-const WardrobeWindow = () => {
-  const [wardrobeItems, setWardrobeItems] = useState<ClothingItem[]>([]);
-  const [selectedCategory, setSelectedCategory] =
-    useState<string>("uncategorized");
-  const [isUploading, setIsUploading] = useState(false);
+interface WardrobeWindowProps {
+  isFullscreen?: boolean;
+  isMobile?: boolean;
+}
+
+type FurnitureType =
+  | "wardrobe"
+  | "hanger"
+  | "shoeShelf"
+  | "jewelryBox"
+  | "floor";
+
+type ItemSizes = {
+  [key: string]: { width: number; height: number };
+};
+
+const WardrobeWindow: React.FC<WardrobeWindowProps> = ({
+  isFullscreen = false,
+  isMobile = false,
+}) => {
+  const [wardrobeItems, setWardrobeItems] = useState<WardrobeItem[]>([]);
+  const [itemPositions, setItemPositions] = useState<{
+    [key: string]: { x: number; y: number };
+  }>({});
+  const [itemSizes, setItemSizes] = useState<ItemSizes>({});
+  const [currentView, setCurrentView] = useState<FurnitureType | null>(null);
+  const [furnitureBounds, setFurnitureBounds] = useState<{
+    [key: string]: { x: number; y: number; width: number; height: number };
+  }>({});
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const [isDeleteMode, setIsDeleteMode] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<string | null>(null);
+
+  // FIXED: Room-level bounds for true free movement
+  const [roomBounds, setRoomBounds] = useState({
+    width: 650, // Default, will be measured
+    height: 400,
+  });
+  const [containerBounds, setContainerBounds] = useState<{
+    [key: string]: { width: number; height: number };
+  }>({
+    wardrobe: { width: 300, height: 350 },
+    shoeShelf: { width: 250, height: 200 },
+    jewelryBox: { width: 200, height: 150 },
+    hanger: { width: 280, height: 300 },
+  });
+
+  // Refs
+  const roomLayoutRef = useRef<View>(null);
+  const floorAreaRef = useRef<View>(null);
+  const wardrobeRef = useRef<View>(null);
+  const jewelryBoxRef = useRef<View>(null);
+  const hangerRef = useRef<View>(null);
+  const shoeShelfRef = useRef<View>(null);
+
+  // Furniture interior refs
+  const wardrobeInteriorRef = useRef<View>(null);
+  const shoeRackInteriorRef = useRef<View>(null);
+  const jewelryBoxInteriorRef = useRef<View>(null);
+  const hangerInteriorRef = useRef<View>(null);
+
+  // FIXED: Track floor offset for proper positioning
+  const [floorOffset, setFloorOffset] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
-    loadWardrobeData();
-  }, []);
+    loadWardrobeItems();
+    setTimeout(() => {
+      measureAllBounds();
+    }, 300);
+  }, [currentView]);
 
-  const loadWardrobeData = async () => {
-    const wardrobe = await WardrobeStorage.loadWardrobe();
-    setWardrobeItems(wardrobe.items);
+  useEffect(() => {
+    if (!currentView) {
+      setSelectedItem(null);
+    }
+  }, [currentView]);
+
+  // FIXED: Proper room-level measurement
+  const measureAllBounds = () => {
+    setTimeout(() => {
+      // Measure the entire room layout first
+      if (roomLayoutRef.current) {
+        roomLayoutRef.current.measure((x, y, width, height) => {
+          console.log("📐 Room Layout:", { width, height });
+          if (width > 0 && height > 0) {
+            setRoomBounds({ width, height });
+          }
+        });
+      }
+
+      // Measure floor area position relative to room
+      if (floorAreaRef.current && roomLayoutRef.current) {
+        floorAreaRef.current.measure((fx, fy, fw, fh, fpx, fpy) => {
+          roomLayoutRef.current?.measure((rx, ry, rw, rh, rpx, rpy) => {
+            const relativeX = fpx - rpx;
+            const relativeY = fpy - rpy;
+            setFloorOffset({ x: relativeX, y: relativeY });
+            console.log("📐 Floor Offset:", { x: relativeX, y: relativeY });
+          });
+        });
+      }
+
+      // Measure furniture positions relative to room
+      const measureFurniturePosition = (
+        ref: React.RefObject<View | null>,
+        furnitureType: string
+      ) => {
+        if (ref.current && roomLayoutRef.current) {
+          ref.current.measure((fx, fy, fw, fh, fpx, fpy) => {
+            roomLayoutRef.current?.measure((rx, ry, rw, rh, rpx, rpy) => {
+              const relativeX = fpx - rpx;
+              const relativeY = fpy - rpy;
+              setFurnitureBounds((prev) => ({
+                ...prev,
+                [furnitureType]: {
+                  x: relativeX,
+                  y: relativeY,
+                  width: fw,
+                  height: fh,
+                },
+              }));
+              console.log(`🏠 ${furnitureType} Position:`, {
+                x: relativeX,
+                y: relativeY,
+                width: fw,
+                height: fh,
+              });
+            });
+          });
+        }
+      };
+
+      measureFurniturePosition(wardrobeRef, "wardrobe");
+      measureFurniturePosition(jewelryBoxRef, "jewelryBox");
+      measureFurniturePosition(hangerRef, "hanger");
+      measureFurniturePosition(shoeShelfRef, "shoeShelf");
+
+      // Measure furniture interiors
+      const measureContainer = (
+        ref: React.RefObject<View | null>,
+        container: string
+      ) => {
+        if (ref.current) {
+          ref.current.measure((x, y, width, height) => {
+            if (width > 0 && height > 0) {
+              setContainerBounds((prev) => ({
+                ...prev,
+                [container]: { width, height },
+              }));
+            }
+          });
+        }
+      };
+
+      measureContainer(wardrobeInteriorRef, "wardrobe");
+      measureContainer(shoeRackInteriorRef, "shoeShelf");
+      measureContainer(jewelryBoxInteriorRef, "jewelryBox");
+      measureContainer(hangerInteriorRef, "hanger");
+    }, 400);
   };
 
-  const pickImage = async () => {
-    setIsUploading(true);
+  const loadWardrobeItems = async () => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+      const items = await wardrobeStorage.getItems();
+      console.log("🔄 Loaded items:", items.length);
+
+      setWardrobeItems(items);
+
+      const initialPositions: { [key: string]: { x: number; y: number } } = {};
+      const initialSizes: ItemSizes = {};
+
+      items.forEach((item) => {
+        if (item.position) {
+          initialPositions[item.id] = item.position;
+        } else if (!item.placedIn || item.placedIn === "floor") {
+          const floorItemCount = Object.keys(initialPositions).filter(
+            (id) =>
+              !items.find((i) => i.id === id)?.placedIn ||
+              items.find((i) => i.id === id)?.placedIn === "floor"
+          ).length;
+
+          // Push initial floor spawns lower by adding a vertical offset
+          const SPAWN_Y_OFFSET = 300; // increase to move items further down
+          const baseFloorY = floorOffset.y + SPAWN_Y_OFFSET;
+
+          initialPositions[item.id] = {
+            x: 20 + (floorItemCount % 6) * 70,
+            y: baseFloorY + Math.floor(floorItemCount / 6) * 75,
+          };
+        }
+
+        if (item.customSize) {
+          initialSizes[item.id] = item.customSize;
+        } else {
+          const container =
+            (item.placedIn as FurnitureType | undefined) ?? "floor";
+          initialSizes[item.id] = getDefaultSizeForContainer(container);
+        }
       });
 
-      if (!result.canceled && result.assets[0]) {
-        const newItem: Omit<ClothingItem, "id" | "createdAt"> = {
-          name: `Item ${wardrobeItems.length + 1}`,
-          category: "uncategorized",
-          imageUri: result.assets[0].uri,
-          tags: [],
-          isCategorized: false,
-        };
-
-        await WardrobeStorage.addItem(newItem);
-        await loadWardrobeData();
-      }
+      setItemPositions(initialPositions);
+      setItemSizes(initialSizes);
     } catch (error) {
-      Alert.alert("Error", "Failed to upload image");
-    } finally {
-      setIsUploading(false);
+      console.error("❌ Failed to load items:", error);
     }
   };
 
-  const uncategorizedItems = wardrobeItems.filter(
-    (item) => !item.isCategorized
-  );
-  const categorizedItems = wardrobeItems.filter((item) => item.isCategorized);
+  const getDefaultSizeForContainer = (container: FurnitureType) => {
+    const defaultSizes = {
+      floor: { width: 60, height: 60 },
+      wardrobe: { width: 60, height: 60 },
+      shoeShelf: { width: 50, height: 50 },
+      jewelryBox: { width: 40, height: 40 },
+      hanger: { width: 60, height: 80 },
+    };
+    return defaultSizes[container];
+  };
 
-  return (
-    <View style={wardrobeStyles.container}>
-      {/* Header with Upload Button */}
-      <View style={wardrobeStyles.header}>
+  // REPLACE JUST THIS FUNCTION - keep everything else the same
+  const handleItemDrag = async (
+    itemId: string,
+    position: { x: number; y: number },
+    container: FurnitureType = "floor"
+  ) => {
+    const item = wardrobeItems.find((i) => i.id === itemId);
+    if (!item) return;
+
+    const currentSize =
+      itemSizes[item.id] || getDefaultSizeForContainer(container);
+    const { width: itemWidth, height: itemHeight } = currentSize;
+
+    let clampedPosition = position;
+    let placedIn: FurnitureType = container;
+
+    console.log(`📦 Dragging in ${container}:`, {
+      position,
+      roomBounds,
+      itemSize: currentSize,
+    });
+
+    if (container === "floor") {
+      // Floor dragging logic - unchanged
+      clampedPosition = {
+        x: Math.max(0, Math.min(position.x, roomBounds.width - itemWidth)),
+        y: Math.max(0, Math.min(position.y, roomBounds.height - itemHeight)),
+      };
+
+      Object.entries(furnitureBounds).forEach(
+        ([furnitureType, furnitureRect]) => {
+          if (
+            clampedPosition.x >= furnitureRect.x &&
+            clampedPosition.x <= furnitureRect.x + furnitureRect.width &&
+            clampedPosition.y >= furnitureRect.y &&
+            clampedPosition.y <= furnitureRect.y + furnitureRect.height
+          ) {
+            placedIn = furnitureType as FurnitureType;
+            console.log(`🎯 Item placed in ${placedIn}`);
+
+            const furnitureInteriorBounds = containerBounds[placedIn];
+            if (furnitureInteriorBounds) {
+              clampedPosition = {
+                x: Math.max(0, (furnitureInteriorBounds.width - itemWidth) / 2),
+                y: Math.max(
+                  0,
+                  (furnitureInteriorBounds.height - itemHeight) / 2
+                ),
+              };
+            }
+          }
+        }
+      );
+    } else {
+      // FURNITURE INTERIOR: NO BOUNDS AT ALL - use position exactly as given
+      clampedPosition = {
+        x: position.x,
+        y: position.y,
+      };
+    }
+
+    // Update item placement and position
+    const updatedItems = wardrobeItems.map((i) =>
+      i.id === itemId ? { ...i, placedIn, position: clampedPosition } : i
+    );
+
+    setWardrobeItems(updatedItems);
+    await wardrobeStorage.updateItems(updatedItems);
+
+    setItemPositions((prev) => ({
+      ...prev,
+      [itemId]: clampedPosition,
+    }));
+  };
+
+  const handleResizeItem = async (
+    itemId: string,
+    direction: "increase" | "decrease"
+  ) => {
+    const currentSize =
+      itemSizes[itemId] || getDefaultSizeForContainer("floor");
+    const scaleFactor = direction === "increase" ? 1.2 : 0.8;
+
+    const newSize = {
+      width: Math.max(20, Math.min(150, currentSize.width * scaleFactor)),
+      height: Math.max(20, Math.min(150, currentSize.height * scaleFactor)),
+    };
+
+    setItemSizes((prev) => ({
+      ...prev,
+      [itemId]: newSize,
+    }));
+
+    const updatedItems = wardrobeItems.map((item) =>
+      item.id === itemId ? { ...item, customSize: newSize } : item
+    );
+
+    setWardrobeItems(updatedItems);
+    await wardrobeStorage.updateItems(updatedItems);
+  };
+
+  const handleItemSelect = (itemId: string) => {
+    if (isDeleteMode) {
+      setItemToDelete(itemId);
+      setDeleteModalVisible(true);
+      setIsDeleteMode(false);
+    } else {
+      setSelectedItem(itemId === selectedItem ? null : itemId);
+    }
+  };
+
+  const renderResizeControls = (
+    itemId: string,
+    position: { x: number; y: number }
+  ) => {
+    if (selectedItem !== itemId) return null;
+
+    return (
+      <View style={resizeStyles.resizeControls} pointerEvents="box-none">
         <TouchableOpacity
-          style={wardrobeStyles.uploadButton}
-          onPress={pickImage}
-          disabled={isUploading}
+          style={[resizeStyles.resizeButton, resizeStyles.decreaseButton]}
+          onPress={() => handleResizeItem(itemId, "decrease")}
         >
-          <Text style={wardrobeStyles.uploadButtonText}>
-            {isUploading ? "UPLOADING..." : "📷 UPLOAD CLOTHES"}
-          </Text>
+          <Text style={resizeStyles.resizeButtonText}>-</Text>
         </TouchableOpacity>
-        <Text style={wardrobeStyles.itemCount}>
-          {wardrobeItems.length} items in wardrobe
+        <TouchableOpacity
+          style={[resizeStyles.resizeButton, resizeStyles.increaseButton]}
+          onPress={() => handleResizeItem(itemId, "increase")}
+        >
+          <Text style={resizeStyles.resizeButtonText}>+</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const handleFurniturePress = (furnitureType: FurnitureType) => {
+    setCurrentView(furnitureType);
+    setSelectedItem(null);
+    setTimeout(measureAllBounds, 100);
+  };
+
+  const handleTrashBinPress = () => {
+    if (!isDeleteMode) {
+      setIsDeleteMode(true);
+      setSelectedItem(null);
+    } else {
+      setIsDeleteMode(false);
+    }
+  };
+
+  const handleTakeItemOut = async (itemId: string) => {
+    const item = wardrobeItems.find((i) => i.id === itemId);
+    if (item) {
+      const floorItemCount = wardrobeItems.filter(
+        (i) => !i.placedIn || i.placedIn === "floor"
+      ).length;
+
+      const SPAWN_Y_OFFSET = 100; // increase to move items further down
+      const baseFloorY = floorOffset.y + SPAWN_Y_OFFSET;
+
+      const newPosition = {
+        x: 50 + (floorItemCount % 5) * 70,
+        y: baseFloorY + Math.floor(floorItemCount / 5) * 75,
+      };
+
+      const updatedItems = wardrobeItems.map((i) =>
+        i.id === itemId
+          ? { ...i, placedIn: "floor" as FurnitureType, position: newPosition }
+          : i
+      );
+
+      setWardrobeItems(updatedItems);
+      await wardrobeStorage.updateItems(updatedItems);
+      setItemPositions((prev) => ({
+        ...prev,
+        [itemId]: newPosition,
+      }));
+    }
+  };
+
+  const handleItemLongPress = (itemId: string) => {
+    handleTakeItemOut(itemId);
+  };
+
+  const getItemsForFurniture = (furnitureType: FurnitureType) => {
+    return wardrobeItems.filter((item) => item.placedIn === furnitureType);
+  };
+
+  const getFloorItems = () => {
+    return wardrobeItems.filter(
+      (item) =>
+        (!item.placedIn || item.placedIn === "floor") && itemPositions[item.id]
+    );
+  };
+
+  const confirmDelete = async () => {
+    if (itemToDelete) {
+      await wardrobeStorage.deleteItem(itemToDelete);
+      await loadWardrobeItems();
+    }
+    setDeleteModalVisible(false);
+    setItemToDelete(null);
+  };
+
+  const cancelDelete = () => {
+    setDeleteModalVisible(false);
+    setItemToDelete(null);
+  };
+
+  // Furniture views (unchanged)
+  const renderWardrobeView = () => (
+    <View style={styles.furnitureView}>
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => setCurrentView(null)}
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.viewTitle}>Wardrobe</Text>
+        <View style={styles.placeholder} />
+      </View>
+
+      <View style={styles.wardrobeInterior} ref={wardrobeInteriorRef}>
+        <Image
+          source={require("../../assets/furniture/wardrobe-open.png")}
+          style={styles.furnitureBackground}
+        />
+
+        {getItemsForFurniture("wardrobe").map((item) => {
+          const currentSize =
+            itemSizes[item.id] || getDefaultSizeForContainer("wardrobe");
+          return (
+            <Draggable
+              key={item.id}
+              initialPosition={itemPositions[item.id] || { x: 50, y: 50 }}
+              onDrag={(position) =>
+                handleItemDrag(item.id, position, "wardrobe")
+              }
+            >
+              <TouchableOpacity
+                onPress={() => handleItemSelect(item.id)}
+                onLongPress={() => handleItemLongPress(item.id)}
+                delayLongPress={500}
+              >
+                <Image
+                  source={{ uri: item.imageUri }}
+                  style={[
+                    styles.wardrobeItemImage,
+                    { width: currentSize.width, height: currentSize.height },
+                  ]}
+                />
+              </TouchableOpacity>
+              {renderResizeControls(
+                item.id,
+                itemPositions[item.id] || { x: 50, y: 50 }
+              )}
+            </Draggable>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const renderHangerView = () => (
+    <View style={styles.furnitureView}>
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => setCurrentView(null)}
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.viewTitle}>Hanger Rack</Text>
+        <View style={styles.placeholder} />
+      </View>
+
+      <View style={styles.hangerInterior} ref={hangerInteriorRef}>
+        <Image
+          source={require("../../assets/furniture/hanger-rack.png")}
+          style={styles.hangerRackImage}
+        />
+
+        {getItemsForFurniture("hanger").map((item) => {
+          const currentSize =
+            itemSizes[item.id] || getDefaultSizeForContainer("hanger");
+          return (
+            <Draggable
+              key={item.id}
+              initialPosition={itemPositions[item.id] || { x: 50, y: 80 }}
+              onDrag={(position) => handleItemDrag(item.id, position, "hanger")}
+            >
+              <TouchableOpacity
+                onPress={() => handleItemSelect(item.id)}
+                onLongPress={() => handleItemLongPress(item.id)}
+                delayLongPress={500}
+              >
+                <Image
+                  source={{ uri: item.imageUri }}
+                  style={[
+                    styles.hangerItemImage,
+                    { width: currentSize.width, height: currentSize.height },
+                  ]}
+                />
+              </TouchableOpacity>
+              {renderResizeControls(
+                item.id,
+                itemPositions[item.id] || { x: 50, y: 80 }
+              )}
+            </Draggable>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const renderShoeShelfView = () => (
+    <View style={styles.furnitureView}>
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => setCurrentView(null)}
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.viewTitle}>Shoe Rack</Text>
+        <View style={styles.placeholder} />
+      </View>
+
+      <View style={styles.shoeRackInterior} ref={shoeRackInteriorRef}>
+        <Image
+          source={require("../../assets/furniture/shoe-rack-open.png")}
+          style={styles.furnitureBackground}
+        />
+
+        {getItemsForFurniture("shoeShelf").map((item) => {
+          const currentSize =
+            itemSizes[item.id] || getDefaultSizeForContainer("shoeShelf");
+          return (
+            <Draggable
+              key={item.id}
+              initialPosition={itemPositions[item.id] || { x: 50, y: 50 }}
+              onDrag={(position) =>
+                handleItemDrag(item.id, position, "shoeShelf")
+              }
+            >
+              <TouchableOpacity
+                onPress={() => handleItemSelect(item.id)}
+                onLongPress={() => handleItemLongPress(item.id)}
+                delayLongPress={500}
+              >
+                <Image
+                  source={{ uri: item.imageUri }}
+                  style={[
+                    styles.shoeItemImage,
+                    { width: currentSize.width, height: currentSize.height },
+                  ]}
+                />
+              </TouchableOpacity>
+              {renderResizeControls(
+                item.id,
+                itemPositions[item.id] || { x: 50, y: 50 }
+              )}
+            </Draggable>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const renderJewelryBoxView = () => (
+    <View style={styles.furnitureView}>
+      <View style={styles.headerRow}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => setCurrentView(null)}
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.viewTitle}>Jewelry Box</Text>
+        <View style={styles.placeholder} />
+      </View>
+
+      <View style={styles.jewelryBoxInterior} ref={jewelryBoxInteriorRef}>
+        <Image
+          source={require("../../assets/furniture/jewelry-box-open.png")}
+          style={styles.furnitureBackground}
+        />
+
+        {getItemsForFurniture("jewelryBox").map((item) => {
+          const currentSize =
+            itemSizes[item.id] || getDefaultSizeForContainer("jewelryBox");
+          return (
+            <Draggable
+              key={item.id}
+              initialPosition={itemPositions[item.id] || { x: 50, y: 50 }}
+              onDrag={(position) =>
+                handleItemDrag(item.id, position, "jewelryBox")
+              }
+            >
+              <TouchableOpacity
+                onPress={() => handleItemSelect(item.id)}
+                onLongPress={() => handleItemLongPress(item.id)}
+                delayLongPress={500}
+              >
+                <Image
+                  source={{ uri: item.imageUri }}
+                  style={[
+                    styles.jewelryItemImage,
+                    { width: currentSize.width, height: currentSize.height },
+                  ]}
+                />
+              </TouchableOpacity>
+              {renderResizeControls(
+                item.id,
+                itemPositions[item.id] || { x: 50, y: 50 }
+              )}
+            </Draggable>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const mobilePreviewContent = (
+    <View style={windowStyles.previewContent}>
+      <Image
+        source={require("../../assets/icons/wardrobe.png")}
+        style={windowStyles.previewIcon}
+      />
+      <Text style={windowStyles.previewTitle}>My Room</Text>
+      <Text style={windowStyles.previewText}>
+        Organize your clothes in furniture{"\n"}Click furniture to see inside!
+      </Text>
+      <View style={windowStyles.previewStats}>
+        <Text style={windowStyles.statsText}>
+          Items: {wardrobeItems.length}
         </Text>
       </View>
+    </View>
+  );
 
-      <ScrollView style={wardrobeStyles.content}>
-        {/* Categories Shelf - Pixel Art Style */}
-        <View style={wardrobeStyles.shelfSection}>
-          <Text style={wardrobeStyles.sectionTitle}>🧺 CLOSET SHELVES</Text>
-          <View style={wardrobeStyles.categoriesGrid}>
-            {DEFAULT_CATEGORIES.map((category) => (
-              <CategoryShelf
-                key={category}
-                category={category}
-                items={categorizedItems.filter(
-                  (item) => item.category === category
-                )}
-                onItemDrop={(itemId) =>
-                  WardrobeStorage.updateItemCategory(itemId, category).then(
-                    loadWardrobeData
-                  )
-                }
+  // FIXED: The main structural change - floor items at room level
+  const fullContent = (
+    <View style={windowStyles.fullContent}>
+      <Text style={windowStyles.fullSubtitle}>
+        Drag items onto furniture to store them.
+        {!currentView && !isDeleteMode && " Click furniture to see inside."}
+        {isDeleteMode && " Click an item to delete it."}
+        {currentView &&
+          " Click items to select and resize them. Long press to take out."}
+      </Text>
+
+      {currentView ? (
+        <>
+          {currentView === "wardrobe" && renderWardrobeView()}
+          {currentView === "hanger" && renderHangerView()}
+          {currentView === "shoeShelf" && renderShoeShelfView()}
+          {currentView === "jewelryBox" && renderJewelryBoxView()}
+        </>
+      ) : (
+        <View style={windowStyles.roomLayout} ref={roomLayoutRef}>
+          <TouchableOpacity
+            style={windowStyles.trashBin}
+            onPress={handleTrashBinPress}
+          >
+            <Image
+              source={require("../../assets/icons/trash-icon.png")}
+              style={windowStyles.trashBinIcon}
+            />
+          </TouchableOpacity>
+
+          <View style={windowStyles.furnitureRow}>
+            <TouchableOpacity
+              ref={wardrobeRef}
+              onPress={() => handleFurniturePress("wardrobe")}
+            >
+              <Image
+                source={require("../../assets/furniture/wardrobe-closed.png")}
+                style={[windowStyles.furnitureImage, windowStyles.wardrobeSize]}
               />
-            ))}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              ref={jewelryBoxRef}
+              onPress={() => handleFurniturePress("jewelryBox")}
+            >
+              <Image
+                source={require("../../assets/furniture/jewelry-box-closed.png")}
+                style={[
+                  windowStyles.furnitureImage,
+                  windowStyles.jewelryBoxSize,
+                ]}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              ref={hangerRef}
+              onPress={() => handleFurniturePress("hanger")}
+            >
+              <Image
+                source={require("../../assets/furniture/hanger-closed.png")}
+                style={[windowStyles.furnitureImage, windowStyles.hangerSize]}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              ref={shoeShelfRef}
+              onPress={() => handleFurniturePress("shoeShelf")}
+            >
+              <Image
+                source={require("../../assets/furniture/shoe-rack-closed.png")}
+                style={[
+                  windowStyles.furnitureImage,
+                  windowStyles.shoeShelfSize,
+                ]}
+              />
+            </TouchableOpacity>
           </View>
-        </View>
 
-        {/* Uncategorized Items - Laundry Basket */}
-        <View style={wardrobeStyles.uncategorizedSection}>
-          <Text style={wardrobeStyles.sectionTitle}>
-            🧦 LAUNDRY BASKET (Uncategorized)
-          </Text>
-          <View style={wardrobeStyles.uncategorizedGrid}>
-            {uncategorizedItems.map((item) => (
-              <DraggableClothingItem
-                key={item.id}
-                item={item}
-                onDragEnd={(position, targetCategory) => {
-                  if (targetCategory) {
-                    WardrobeStorage.updateItemCategory(
-                      item.id,
-                      targetCategory
-                    ).then(loadWardrobeData);
-                  }
-                }}
-              />
-            ))}
-            {uncategorizedItems.length === 0 && (
-              <Text style={wardrobeStyles.emptyText}>
-                Upload some clothes to get started! 📸
-              </Text>
+          {/* Floor area - just the visual background */}
+          <View style={windowStyles.floorArea} ref={floorAreaRef}>
+            <Image
+              source={require("../../assets/floor-texture.png")}
+              style={windowStyles.floorTexture}
+              resizeMode="repeat"
+            />
+
+            {/* Empty state only */}
+            {wardrobeItems.length === 0 && (
+              <View style={windowStyles.emptyFloor}>
+                <Text style={windowStyles.emptyText}>No items yet</Text>
+                <Text style={windowStyles.emptySubtext}>
+                  To add items go to the Add Items window! Have fun!
+                </Text>
+              </View>
             )}
           </View>
+
+          {/* FIXED: Floor items rendered at room level for true free movement */}
+          {getFloorItems().map((item) => {
+            const currentSize =
+              itemSizes[item.id] || getDefaultSizeForContainer("floor");
+            return (
+              <Draggable
+                key={item.id}
+                initialPosition={itemPositions[item.id] || { x: 50, y: 150 }}
+                onDrag={(position) =>
+                  handleItemDrag(item.id, position, "floor")
+                }
+              >
+                <TouchableOpacity
+                  style={[
+                    windowStyles.draggableItem,
+                    { width: currentSize.width, height: currentSize.height },
+                  ]}
+                  onPress={() => handleItemSelect(item.id)}
+                >
+                  <Image
+                    source={{ uri: item.imageUri }}
+                    style={[
+                      windowStyles.itemImage,
+                      { width: currentSize.width, height: currentSize.height },
+                    ]}
+                  />
+                </TouchableOpacity>
+                {renderResizeControls(
+                  item.id,
+                  itemPositions[item.id] || { x: 50, y: 150 }
+                )}
+              </Draggable>
+            );
+          })}
         </View>
-      </ScrollView>
-    </View>
-  );
-};
+      )}
 
-// Category Shelf Component
-const CategoryShelf: React.FC<{
-  category: string;
-  items: ClothingItem[];
-  onItemDrop: (itemId: string) => void;
-}> = ({ category, items, onItemDrop }) => {
-  const [isDragOver, setIsDragOver] = useState(false);
-
-  return (
-    <View
-      style={[wardrobeStyles.shelf, isDragOver && wardrobeStyles.shelfDragOver]}
-    >
-      {/* Shelf Label with Pixel Art Style */}
-      <View style={wardrobeStyles.shelfLabel}>
-        <Text style={wardrobeStyles.shelfLabelText}>{category}</Text>
-        <Text style={wardrobeStyles.itemCountText}>({items.length})</Text>
-      </View>
-
-      {/* Shelf Surface with Wood Grain Pixel Effect */}
-      <View style={wardrobeStyles.shelfSurface}>
-        {/* Items Grid */}
-        <View style={wardrobeStyles.shelfItemsGrid}>
-          {items.slice(0, isMobile ? 2 : 3).map((item) => (
-            <ClothingItemThumbnail key={item.id} item={item} />
-          ))}
-          {items.length === 0 && (
-            <Text style={wardrobeStyles.emptyShelfText}>Empty</Text>
-          )}
+      <Modal
+        visible={deleteModalVisible}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={windowStyles.modalOverlay}>
+          <View style={windowStyles.modalContent}>
+            <Text style={windowStyles.modalTitle}>Delete Item</Text>
+            <Text style={windowStyles.modalText}>
+              Are you sure you want to delete this item?
+            </Text>
+            <View style={windowStyles.modalButtons}>
+              <TouchableOpacity
+                style={[windowStyles.modalButton, windowStyles.cancelButton]}
+                onPress={cancelDelete}
+              >
+                <Text style={windowStyles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[windowStyles.modalButton, windowStyles.deleteButton]}
+                onPress={confirmDelete}
+              >
+                <Text style={windowStyles.deleteButtonText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
-      </View>
-
-      {/* Drop Zone - Invisible area that accepts drops */}
-      <View
-        style={wardrobeStyles.dropZone}
-        onStartShouldSetResponder={() => true}
-        onResponderGrant={() => setIsDragOver(true)}
-        onResponderRelease={() => setIsDragOver(false)}
-        onResponderTerminate={() => setIsDragOver(false)}
-      />
+      </Modal>
     </View>
   );
+
+  return isMobile && !isFullscreen ? mobilePreviewContent : fullContent;
 };
 
-// Draggable Clothing Item Component
-const DraggableClothingItem: React.FC<{
-  item: ClothingItem;
-  onDragEnd: (
-    position: { x: number; y: number },
-    targetCategory?: string
-  ) => void;
-}> = ({ item, onDragEnd }) => {
-  const pan = useRef(new Animated.ValueXY()).current;
-  const [isDragging, setIsDragging] = useState(false);
+// ... (rest of the styles remain the same)
 
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: () => {
-      setIsDragging(true);
-      pan.setOffset({
-        x: (pan.x as any)._value,
-        y: (pan.y as any)._value,
-      });
-    },
-    onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
-      useNativeDriver: false,
-    }),
-    onPanResponderRelease: (_, gesture) => {
-      setIsDragging(false);
-      pan.flattenOffset();
-
-      // Calculate drop position and determine target category
-      const dropPosition = { x: gesture.moveX, y: gesture.moveY };
-
-      // Simple category detection based on screen position
-      // In a real app, you'd use more sophisticated hit testing
-      const targetCategory = findCategoryAtPosition(dropPosition);
-
-      onDragEnd(dropPosition, targetCategory);
-
-      // Return to original position
-      Animated.spring(pan, {
-        toValue: { x: 0, y: 0 },
-        useNativeDriver: false,
-      }).start();
-    },
-  });
-
-  return (
-    <Animated.View
-      style={[
-        wardrobeStyles.draggableItem,
-        isDragging && wardrobeStyles.draggingItem,
-        { transform: pan.getTranslateTransform() },
-      ]}
-      {...panResponder.panHandlers}
-    >
-      <ClothingItemThumbnail item={item} />
-    </Animated.View>
-  );
-};
-
-// Clothing Item Thumbnail Component
-const ClothingItemThumbnail: React.FC<{ item: ClothingItem }> = ({ item }) => {
-  return (
-    <View style={wardrobeStyles.itemThumbnail}>
-      <Image
-        source={{ uri: item.imageUri }}
-        style={wardrobeStyles.itemImage}
-        resizeMode="cover"
-      />
-      <Text style={wardrobeStyles.itemName} numberOfLines={1}>
-        {item.name}
-      </Text>
-    </View>
-  );
-};
-
-// Helper function to find category at position (simplified)
-const findCategoryAtPosition = (position: {
-  x: number;
-  y: number;
-}): string | undefined => {
-  // This is a simplified version - you'd need more sophisticated hit testing
-  // For now, we'll use a basic approach based on screen sections
-  const shelfHeight = 120;
-  const categoryIndex = Math.floor(position.y / shelfHeight);
-
-  if (categoryIndex >= 0 && categoryIndex < DEFAULT_CATEGORIES.length) {
-    return DEFAULT_CATEGORIES[categoryIndex];
-  }
-
-  return undefined;
-};
-
-const wardrobeStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#ffebf3", // Light pink background
-    padding: 8,
-  },
-  header: {
+const resizeStyles = StyleSheet.create({
+  resizeControls: {
+    position: "absolute",
+    top: -30,
+    left: 0,
+    right: 0,
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
-    paddingHorizontal: 8,
+    zIndex: 1000,
   },
-  uploadButton: {
-    backgroundColor: "#ff66b2", // Pink accent
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderWidth: 2,
-    borderColor: "#dfdfdf",
-    borderTopColor: "#ffffff",
-    borderLeftColor: "#ffffff",
-    borderRightColor: "#808080",
-    borderBottomColor: "#808080",
-  },
-  uploadButtonText: {
-    color: "#ffffff",
-    fontWeight: "bold",
-    fontSize: 12,
-    fontFamily: "MS Sans Serif, System",
-    textShadowColor: "#000000",
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 0,
-  },
-  itemCount: {
-    fontSize: 11,
-    color: "#000000",
-    fontFamily: "MS Sans Serif, System",
-  },
-  content: {
-    flex: 1,
-  },
-  shelfSection: {
-    marginBottom: 24,
-  },
-  uncategorizedSection: {
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: "#000000",
-    fontFamily: "MS Sans Serif, System",
-    marginBottom: 8,
-    backgroundColor: "#ffccdd",
-    padding: 8,
+  resizeButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginHorizontal: 4,
     borderWidth: 1,
-    borderColor: "#ff66b2",
+    borderColor: "#333",
+  },
+  increaseButton: {
+    backgroundColor: "#4CAF50",
+  },
+  decreaseButton: {
+    backgroundColor: "#f44336",
+  },
+  resizeButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 14,
+    lineHeight: 18,
+  },
+});
+
+const windowStyles = StyleSheet.create({
+  previewContent: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  },
+  previewIcon: {
+    width: 64,
+    height: 64,
+    marginBottom: 16,
+  },
+  previewTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 8,
     textAlign: "center",
   },
-  categoriesGrid: {
-    flexDirection: "column",
-    gap: 4,
+  previewText: {
+    fontSize: 12,
+    textAlign: "center",
+    lineHeight: 16,
+    marginBottom: 16,
+    color: "#666",
   },
-  shelf: {
-    backgroundColor: "#8b4513", // Wood brown
-    marginVertical: 2,
-    borderWidth: 2,
-    borderColor: "#a0522d",
-    borderTopColor: "#deb887",
-    borderLeftColor: "#deb887",
-    borderRightColor: "#654321",
-    borderBottomColor: "#654321",
-    position: "relative",
-    minHeight: 100,
+  previewStats: {
+    marginTop: 8,
   },
-  shelfDragOver: {
-    backgroundColor: "#9d6b3d",
+  statsText: {
+    fontSize: 10,
+    color: "#888",
   },
-  shelfLabel: {
+  fullContent: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: "transparent",
+  },
+  fullSubtitle: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  roomLayout: {
+    flex: 1,
+    position: "relative", // Important for absolute positioning of floor items
+  },
+  furnitureRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    backgroundColor: "#ff66b2",
+    alignItems: "flex-end",
+    marginBottom: 10,
+    height: 150,
+    paddingHorizontal: 10,
+    marginTop: 10,
   },
-  shelfLabelText: {
-    color: "#ffffff",
-    fontSize: 11,
-    fontWeight: "bold",
-    fontFamily: "MS Sans Serif, System",
-    textShadowColor: "#000000",
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 0,
+  furnitureImage: {
+    resizeMode: "contain",
   },
-  itemCountText: {
-    color: "#ffffff",
-    fontSize: 10,
-    fontFamily: "MS Sans Serif, System",
+  wardrobeSize: {
+    width: 180,
+    height: 160,
   },
-  shelfSurface: {
-    padding: 8,
-    minHeight: 80,
+  jewelryBoxSize: {
+    width: 100,
+    height: 80,
   },
-  shelfItemsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+  hangerSize: {
+    width: 130,
+    height: 100,
   },
-  emptyShelfText: {
-    fontSize: 10,
-    color: "#666666",
-    fontStyle: "italic",
-    fontFamily: "MS Sans Serif, System",
-    textAlign: "center",
-    width: "100%",
-    marginTop: 20,
+  shoeShelfSize: {
+    width: 90,
+    height: 70,
   },
-  dropZone: {
+  // Floor area is now just a visual background
+  floorArea: {
+    flex: 1,
+    backgroundColor: "transparent",
+    marginTop: 10,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#e0e0e0",
+    minHeight: 300,
+  },
+  floorTexture: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    width: "100%",
+    height: "100%",
+    opacity: 0.3,
   },
-  uncategorizedGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
+  draggableItem: {
+    position: "absolute",
+    alignItems: "center",
+    padding: 0,
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    borderWidth: 0,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 3,
+    zIndex: 10,
+  },
+  itemImage: {
+    borderRadius: 0,
+    backgroundColor: "transparent",
+  },
+  emptyFloor: {
+    flex: 1,
+    alignItems: "center",
     justifyContent: "center",
-    padding: 8,
-    backgroundColor: "#e6f2ff",
+    padding: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#666",
+    marginBottom: 4,
+  },
+  emptySubtext: {
+    fontSize: 12,
+    color: "#666",
+  },
+  trashBin: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 100,
+  },
+  trashBinIcon: {
+    width: 40,
+    height: 40,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "white",
+    padding: 20,
+    borderRadius: 8,
+    width: "80%",
+    maxWidth: 300,
     borderWidth: 2,
-    borderColor: "#dfdfdf",
+    borderColor: "#c0c0c0",
     borderTopColor: "#ffffff",
     borderLeftColor: "#ffffff",
     borderRightColor: "#808080",
     borderBottomColor: "#808080",
-    minHeight: 120,
   },
-  draggableItem: {
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  modalText: {
+    fontSize: 14,
+    marginBottom: 20,
+    textAlign: "center",
+    color: "#333",
+  },
+  modalButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 4,
     alignItems: "center",
   },
-  draggingItem: {
-    zIndex: 1000,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
-    elevation: 8,
-  },
-  itemThumbnail: {
-    alignItems: "center",
-    width: 80,
-  },
-  itemImage: {
-    width: 70,
-    height: 70,
+  cancelButton: {
+    backgroundColor: "#c0c0c0",
     borderWidth: 2,
-    borderColor: "#ffffff",
-    borderTopColor: "#808080",
-    borderLeftColor: "#808080",
-    borderRightColor: "#dfdfdf",
-    borderBottomColor: "#dfdfdf",
+    borderTopColor: "#ffffff",
+    borderLeftColor: "#ffffff",
+    borderRightColor: "#808080",
+    borderBottomColor: "#808080",
   },
-  itemName: {
-    fontSize: 10,
-    color: "#000000",
-    fontFamily: "MS Sans Serif, System",
-    marginTop: 4,
-    textAlign: "center",
-    maxWidth: 70,
+  deleteButton: {
+    backgroundColor: "#ff4444",
+    borderWidth: 2,
+    borderTopColor: "#ffffff",
+    borderLeftColor: "#ffffff",
+    borderRightColor: "#cc0000",
+    borderBottomColor: "#cc0000",
   },
-  emptyText: {
+  cancelButtonText: {
+    color: "#000",
+    fontWeight: "bold",
+  },
+  deleteButtonText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+});
+
+const styles = StyleSheet.create({
+  furnitureView: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: "transparent",
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: "#ccc",
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  backButton: {
+    backgroundColor: "#c0c0c0",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderTopColor: "#ffffff",
+    borderLeftColor: "#ffffff",
+    borderRightColor: "#808080",
+    borderBottomColor: "#808080",
+  },
+  backButtonText: {
+    color: "#000",
+    fontWeight: "bold",
     fontSize: 12,
-    color: "#666666",
-    fontStyle: "italic",
-    fontFamily: "MS Sans Serif, System",
+  },
+  viewTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
     textAlign: "center",
-    marginTop: 40,
+    color: "#333",
+  },
+  placeholder: {
+    width: 60,
+  },
+  furnitureBackground: {
+    width: "100%",
+    height: "100%",
+    position: "absolute",
+    resizeMode: "contain",
+  },
+  wardrobeInterior: {
+    flex: 1,
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 200,
+  },
+  shoeRackInterior: {
+    flex: 1,
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 200,
+  },
+  jewelryBoxInterior: {
+    flex: 1,
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 200,
+  },
+  hangerInterior: {
+    flex: 1,
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 200,
+  },
+  hangerRackImage: {
+    width: "100%",
+    height: "100%",
+    position: "relative",
+    resizeMode: "contain",
+  },
+  wardrobeItemImage: {
+    backgroundColor: "transparent",
+  },
+  shoeItemImage: {
+    backgroundColor: "transparent",
+  },
+  jewelryItemImage: {
+    backgroundColor: "transparent",
+  },
+  hangerItemImage: {
+    backgroundColor: "transparent",
   },
 });
 

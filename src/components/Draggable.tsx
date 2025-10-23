@@ -39,27 +39,21 @@ const Draggable: React.FC<DraggableProps> = ({
   };
 
   const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: (evt, gestureState) => {
-      // Only allow dragging from title bar if disableContentDrag is true
-      if (disableContentDrag) {
-        // Check if the touch is in the title bar area (first 30 pixels from top)
-        return gestureState.y0 < 30;
-      }
-      return true;
-    },
+    onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: () => {
       isDraggingRef.current = false;
     },
     onPanResponderMove: (_, gestureState) => {
-      // Only start dragging after a small movement to avoid text selection
-      if (Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5) {
+      if (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2) {
         isDraggingRef.current = true;
 
         const newPosition = {
           x: initialPosition.x + gestureState.dx,
           y: initialPosition.y + gestureState.dy,
         };
+
+        // REMOVED: No clamping here - let handleItemDrag handle it
         setPosition(newPosition);
         onDrag?.(newPosition);
       }

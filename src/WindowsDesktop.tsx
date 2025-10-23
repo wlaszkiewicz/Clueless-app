@@ -215,8 +215,8 @@ const WindowsDesktop = () => {
           }));
         } else {
           // Desktop: Classic cascade effect
-          const baseX = 100;
-          const baseY = 50;
+          const baseX = 300;
+          const baseY = 70;
           const offset = 30;
 
           setWindowPositions((prev) => ({
@@ -290,8 +290,8 @@ const WindowsDesktop = () => {
   const getWindowPosition = (windowId: string) => {
     return (
       windowPositions[windowId] || {
-        x: isMobile ? 20 : 100,
-        y: isMobile ? 50 : 50,
+        x: isMobile ? 20 : 300,
+        y: isMobile ? 280 : 70,
       }
     );
   };
@@ -325,20 +325,59 @@ const WindowsDesktop = () => {
     closeAllMenus();
   };
 
+  const [fullscreenStates, setFullscreenStates] = useState<{
+    [key: string]: boolean;
+  }>({});
+
+  const handleFullscreen = (windowId: string, isFullscreen: boolean) => {
+    setFullscreenStates((prev) => ({
+      ...prev,
+      [windowId]: isFullscreen,
+    }));
+  };
+
+  const [wardrobeRefreshTrigger, setWardrobeRefreshTrigger] = useState(0);
+
+  const refreshWardrobe = () => {
+    setWardrobeRefreshTrigger((prev) => prev + 1);
+  };
+
   const renderWindowContent = (windowId: string) => {
+    const isFullscreen = fullscreenStates[windowId] || false;
+
     switch (windowId) {
-      case "wardrobe":
-        return <WardrobeWindow />;
       case "outfits":
-        return <CreateOutfitWindow />;
+        return (
+          <CreateOutfitWindow isFullscreen={isFullscreen} isMobile={isMobile} />
+        );
       case "addItem":
-        return <AddItemWindow />;
+        return (
+          <AddItemWindow
+            isFullscreen={isFullscreen}
+            isMobile={isMobile}
+            onItemAdded={refreshWardrobe} // Pass the refresh function
+          />
+        );
+      case "wardrobe":
+        return (
+          <WardrobeWindow
+            isFullscreen={isFullscreen}
+            isMobile={isMobile}
+            key={wardrobeRefreshTrigger} // Force re-render when refresh triggered
+          />
+        );
       case "gallery":
-        return <GalleryWindow />;
+        return (
+          <GalleryWindow isFullscreen={isFullscreen} isMobile={isMobile} />
+        );
       case "dressMe":
-        return <DressMeWindow />;
+        return (
+          <DressMeWindow isFullscreen={isFullscreen} isMobile={isMobile} />
+        );
       case "clueless":
-        return <CluelessWindow />;
+        return (
+          <CluelessWindow isFullscreen={isFullscreen} isMobile={isMobile} />
+        );
       default:
         return (
           <Text style={styles.windowText}>
@@ -374,11 +413,31 @@ const WindowsDesktop = () => {
             onDrag={(position) => handleIconDrag(icon.id, position)}
           />
         ))}
-        {/* Draggable Windows */}
         {openWindows
           .filter((windowId) => !minimizedWindows.includes(windowId))
           .map((windowId) => {
             const icon = desktopIcons.find((icon) => icon.id === windowId);
+            // Define different sizes for different windows on desktop
+            let desktopWidth = 600;
+            let desktopHeight = 500;
+
+            // Custom sizes for specific windows
+            if (windowId === "wardrobe") {
+              desktopWidth = 700;
+              desktopHeight = 600;
+            } else if (windowId === "outfits") {
+              desktopWidth = 1000; // Larger for drag & drop
+              desktopHeight = 800;
+            } else if (windowId === "gallery") {
+              desktopWidth = 950;
+              desktopHeight = 780;
+            } else if (windowId === "dressMe") {
+              desktopWidth = 650;
+              desktopHeight = 600;
+            } else if (windowId === "addItem") {
+              desktopWidth = 600;
+              desktopHeight = 700;
+            }
             return (
               <DraggableWindow
                 key={windowId}
@@ -387,12 +446,15 @@ const WindowsDesktop = () => {
                 initialPosition={getWindowPosition(windowId)}
                 onClose={() => closeWindow(windowId)}
                 onMinimize={() => minimizeWindow(windowId)}
-                onFullscreen={() => {}}
+                onFullscreen={(isFullscreen) =>
+                  handleFullscreen(windowId, isFullscreen)
+                }
                 onFocus={() => focusWindow(windowId)}
                 onDrag={(position) => handleWindowDrag(windowId, position)}
-                width={isMobile ? screenWidth * 0.9 : 500}
-                height={isMobile ? 300 : 400} //
+                width={isMobile ? screenWidth * 0.9 : desktopWidth} // ⬅️ Use custom sizes
+                height={isMobile ? 300 : desktopHeight} // ⬅️ Use custom sizes
                 isFocused={focusedWindow === windowId}
+                isMobile={isMobile}
               >
                 {renderWindowContent(windowId)}
               </DraggableWindow>
@@ -783,13 +845,14 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
+    flexWrap: "nowrap", // Prevent wrapping
+    overflow: "hidden", // Hide overflow initially
   },
   taskbarProgram: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center", // Center content
-    paddingHorizontal: 10,
+    paddingHorizontal: isMobile ? 0 : 10,
     paddingVertical: 2,
     backgroundColor: "#c0c0c0",
     borderWidth: 1,
@@ -813,7 +876,7 @@ const styles = StyleSheet.create({
   taskbarIcon: {
     width: isMobile ? 22 : 20, // Larger icons on mobile
     height: 24,
-    marginRight: 0, // Remove right margin since we're stacking
+    marginRight: isMobile ? 0 : 7,
     marginBottom: 2, // Small space between icon and text
   },
   mobileTaskbarIcon: {
